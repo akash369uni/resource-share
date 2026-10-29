@@ -10,7 +10,7 @@ export default function LoginPage() {
   const [fullName, setFullName] = useState('')
   const [phone, setPhone] = useState('')
   const [idNumber, setIdNumber] = useState('')
-  const [idCardFile, setIdCardFile] = useState<File | null>(null) // New state for the image
+  const [idCardFile, setIdCardFile] = useState<File | null>(null)
   const [role, setRole] = useState('teacher') 
   const [isSignUp, setIsSignUp] = useState(false)
   const [message, setMessage] = useState('')
@@ -24,79 +24,37 @@ export default function LoginPage() {
     setMessage('')
     setLoading(true)
 
-    // VALIDATION
-    if (password.length < 6) {
-      setMessage('Password must be at least 6 characters.')
-      setLoading(false); return;
-    }
+    if (password.length < 6) { setMessage('Password must be at least 6 characters.'); setLoading(false); return; }
 
     if (isSignUp) {
-      if (fullName.trim().length < 3) {
-        setMessage('Please enter your full name.')
-        setLoading(false); return;
-      }
-      if (!/^\d{10}$/.test(phone)) {
-        setMessage('Phone number must be exactly 10 digits.')
-        setLoading(false); return;
-      }
-      if (idNumber.trim().length < 5) {
-        setMessage('Please enter a valid Official ID.')
-        setLoading(false); return;
-      }
-      if (!idCardFile) {
-        setMessage('Please upload a photo of your ID card.')
-        setLoading(false); return;
-      }
+      if (fullName.trim().length < 3) { setMessage('Please enter your full name.'); setLoading(false); return; }
+      if (!/^\d{10}$/.test(phone)) { setMessage('Phone number must be exactly 10 digits.'); setLoading(false); return; }
+      if (idNumber.trim().length < 5) { setMessage('Please enter a valid Official ID.'); setLoading(false); return; }
+      if (!idCardFile) { setMessage('Please upload a photo of your ID card.'); setLoading(false); return; }
 
-      // 1. Sign up Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email, 
-        password, 
-        options: { data: { full_name: fullName } },
-      })
+      const { data: authData, error: authError } = await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName } } })
       
       if (authError) {
         setMessage(authError.message)
-        setLoading(false); return;
-      } 
-      
-      if (authData.user) {
-        // 2. Upload the ID Image
+      } else if (authData.user) {
         setMessage('Uploading ID photo...')
         const fileExt = idCardFile.name.split('.').pop()
         const fileName = `${authData.user.id}-id.${fileExt}`
         
-        const { error: uploadError } = await supabase.storage
-          .from('identity_docs')
-          .upload(fileName, idCardFile)
+        const { error: uploadError } = await supabase.storage.from('identity_docs').upload(fileName, idCardFile)
+        if (uploadError) { setMessage(`Image upload failed: ${uploadError.message}`); setLoading(false); return; }
 
-        if (uploadError) {
-          setMessage(`Image upload failed: ${uploadError.message}`)
-          setLoading(false); return;
-        }
+        const { data: { publicUrl } } = supabase.storage.from('identity_docs').getPublicUrl(fileName)
 
-        // 3. Get Public URL
-        const { data: { publicUrl } } = supabase.storage
-          .from('identity_docs')
-          .getPublicUrl(fileName)
-
-        // 4. Update Profile (The trigger already created the basic profile)
         await supabase.from('profiles').update({
-          phone: phone,
-          id_number: idNumber,
-          id_card_url: publicUrl,
-          role: role,
+          phone: phone, id_number: idNumber, id_card_url: publicUrl, role: role,
         }).eq('id', authData.user.id)
         
         setMessage('Registration successful! Admin verification pending. Please log in.')
-        setIsSignUp(false)
-        setPassword('')
-        setIdCardFile(null)
+        setIsSignUp(false); setPassword(''); setIdCardFile(null)
       }
     } else {
-      // Login
       const { data: authData, error } = await supabase.auth.signInWithPassword({ email, password })
-      
       if (error) {
         setMessage(error.message)
       } else if (authData.user) {
@@ -112,46 +70,140 @@ export default function LoginPage() {
   }
 
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '100vh', backgroundColor: '#f3f4f6', padding: '20px' }}>
-      <div style={{ backgroundColor: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', width: '100%', maxWidth: '450px' }}>
-        <h1 style={{ fontSize: '24px', fontWeight: 'bold', marginBottom: '20px', textAlign: 'center' }}>
-          {isSignUp ? 'Register Account' : 'Welcome Back'}
-        </h1>
+    <div className="min-h-screen bg-slate-50/80 flex justify-center items-center p-4 font-sans text-slate-900">
+      <div className="bg-white p-8 md:p-10 rounded-3xl shadow-xl border border-slate-200/80 w-full max-w-md space-y-6">
         
-        {message && <p style={{ color: message.includes('successful') ? 'green' : 'red', marginBottom: '10px', fontSize: '14px', fontWeight: 'bold' }}>{message}</p>}
+        {/* BRAND LOGO / HEADER */}
+        <div className="text-center space-y-2">
+          <div className="w-12 h-12 bg-indigo-600 rounded-2xl mx-auto flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-indigo-600/20">
+            🏫
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+            {isSignUp ? 'Create an Account' : 'Welcome Back'}
+          </h1>
+          <p className="text-xs text-slate-500">
+            {isSignUp ? 'Register to access resource allocations' : 'Enter your credentials to access your portal'}
+          </p>
+        </div>
+        
+        {message && (
+          <div className={`p-3.5 rounded-xl text-xs font-semibold border flex items-center gap-2 ${
+            message.includes('successful') || message.includes('success') 
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+              : 'bg-red-50 text-red-800 border-red-200'
+          }`}>
+            <span>{message.includes('successful') ? '✨' : '⚠️'}</span>
+            <span>{message}</span>
+          </div>
+        )}
 
-        <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+        <form onSubmit={handleAuth} className="space-y-4">
           {isSignUp && (
-            <>
-              <input type="text" placeholder="Full Name" value={fullName} onChange={(e) => setFullName(e.target.value)} required style={{ padding: '10px', border: '1px solid #ccc', borderRadius: '6px' }} />
-              <input type="tel" placeholder="Contact Number (10 digits)" value={phone} onChange={(e) => setPhone(e.target.value)} required style={{ padding: '10px', border: '1px solid #ccc', borderRadius: '6px' }} />
-              <input type="text" placeholder="Official ID (Govt / Emp ID)" value={idNumber} onChange={(e) => setIdNumber(e.target.value)} required style={{ padding: '10px', border: '1px solid #ccc', borderRadius: '6px' }} />
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                <label style={{ fontSize: '12px', color: '#555', fontWeight: 'bold' }}>Upload ID Card Photo (JPG/PNG)</label>
-                <input type="file" accept="image/*" onChange={(e) => setIdCardFile(e.target.files?.[0] || null)} required style={{ padding: '8px', border: '1px dashed #ccc', borderRadius: '6px', fontSize: '14px' }} />
+            <div className="space-y-4 animate-in fade-in duration-200">
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Full Name</label>
+                <input 
+                  type="text" 
+                  placeholder="e.g. John Doe" 
+                  value={fullName} 
+                  onChange={(e) => setFullName(e.target.value)} 
+                  required 
+                  className="w-full p-3 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition" 
+                />
               </div>
 
-              <select value={role} onChange={(e) => setRole(e.target.value)} style={{ padding: '10px', border: '1px solid #ccc', borderRadius: '6px', backgroundColor: 'white' }}>
-                <option value="teacher">I am a Teacher (Seeker)</option>
-                <option value="owner">I am an Institution Owner (Provider)</option>
-              </select>
-            </>
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Contact Number</label>
+                <input 
+                  type="tel" 
+                  placeholder="10-digit mobile number" 
+                  value={phone} 
+                  onChange={(e) => setPhone(e.target.value)} 
+                  required 
+                  className="w-full p-3 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition" 
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Official ID Number</label>
+                <input 
+                  type="text" 
+                  placeholder="Govt / Employee ID" 
+                  value={idNumber} 
+                  onChange={(e) => setIdNumber(e.target.value)} 
+                  required 
+                  className="w-full p-3 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition" 
+                />
+              </div>
+              
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Official ID Card Photo</label>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  onChange={(e) => setIdCardFile(e.target.files?.[0] || null)} 
+                  required 
+                  className="w-full p-2.5 border border-dashed border-slate-300 rounded-xl text-xs bg-slate-50 text-slate-500 cursor-pointer" 
+                />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Account Role</label>
+                <select 
+                  value={role} 
+                  onChange={(e) => setRole(e.target.value)} 
+                  className="w-full p-3 border border-slate-200 rounded-xl text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition"
+                >
+                  <option value="teacher">Teacher (Resource Seeker)</option>
+                  <option value="owner">Institution Owner (Resource Provider)</option>
+                </select>
+              </div>
+            </div>
           )}
-          <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required style={{ padding: '10px', border: '1px solid #ccc', borderRadius: '6px' }} />
-          <input type="password" placeholder="Password (min 6 chars)" value={password} onChange={(e) => setPassword(e.target.value)} required style={{ padding: '10px', border: '1px solid #ccc', borderRadius: '6px' }} />
+
+          <div>
+            <label className="text-[11px] font-semibold text-slate-600 block mb-1">Email Address</label>
+            <input 
+              type="email" 
+              placeholder="name@institution.edu" 
+              value={email} 
+              onChange={(e) => setEmail(e.target.value)} 
+              required 
+              className="w-full p-3 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition" 
+            />
+          </div>
+
+          <div>
+            <label className="text-[11px] font-semibold text-slate-600 block mb-1">Password</label>
+            <input 
+              type="password" 
+              placeholder="At least 6 characters" 
+              value={password} 
+              onChange={(e) => setPassword(e.target.value)} 
+              required 
+              className="w-full p-3 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition" 
+            />
+          </div>
           
-          <button type="submit" disabled={loading} style={{ padding: '12px', backgroundColor: '#000', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
-            {loading ? 'Processing...' : isSignUp ? 'Sign Up' : 'Log In'}
+          <button 
+            type="submit" 
+            disabled={loading} 
+            className="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-semibold text-xs transition shadow-sm shadow-indigo-600/20 mt-2"
+          >
+            {loading ? 'Processing...' : isSignUp ? 'Complete Registration' : 'Sign In'}
           </button>
         </form>
 
-        <p style={{ marginTop: '20px', textAlign: 'center', fontSize: '14px' }}>
+        <div className="text-center text-xs text-slate-500 pt-2 border-t border-slate-100">
           {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
-          <button onClick={() => { setIsSignUp(!isSignUp); setMessage(''); }} style={{ color: 'blue', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
-            {isSignUp ? 'Log In' : 'Sign Up'}
+          <button 
+            onClick={() => { setIsSignUp(!isSignUp); setMessage(''); }} 
+            className="text-indigo-600 font-bold hover:underline"
+          >
+            {isSignUp ? 'Log In' : 'Create Account'}
           </button>
-        </p>
+        </div>
+
       </div>
     </div>
   )

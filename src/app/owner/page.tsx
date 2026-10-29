@@ -28,15 +28,10 @@ export default function OwnerPage() {
   const router = useRouter()
   const supabase = createClient()
 
-  // UNIVERSAL EMAIL SENDER
   const sendEmail = async (payload: any) => {
     try {
-      await fetch('/api/send', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
-    } catch (err) { console.error("Email failed to send:", err) }
+      await fetch('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    } catch (err) { console.error(err) }
   }
 
   const loadData = async () => {
@@ -50,7 +45,6 @@ export default function OwnerPage() {
     const { data: resData } = await supabase.from('resources').select('*').eq('owner_id', user.id)
     if (resData) setMyResources(resData)
 
-    // Notice we now fetch the teacher's email for notifications
     const { data: reqData } = await supabase
       .from('bookings')
       .select('*, resources!inner(name, owner_id), profiles!requester_id(full_name, phone, email)')
@@ -69,8 +63,7 @@ export default function OwnerPage() {
   const handleCreateResource = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!imageFile) return alert("Please upload an image of the resource.")
-    setIsProcessing(true)
-    setMessage('Publishing resource...')
+    setIsProcessing(true); setMessage('Publishing resource...')
 
     const fileExt = imageFile.name.split('.').pop()
     const fileName = `res-${Date.now()}.${fileExt}`
@@ -89,110 +82,225 @@ export default function OwnerPage() {
     setIsProcessing(false)
   }
 
-  const handleRequestAction = async (bookingId: string, newStatus: 'approved' | 'rejected', req: any) => {
+  const handleRequestAction = async (bookingId: string, newStatus: 'approved' | 'rejected' | 'waitlisted', req: any) => {
     setIsProcessing(true)
-    
     await supabase.from('bookings').update({ status: newStatus }).eq('id', bookingId)
     await supabase.from('audit_logs').insert({ actor_id: user.id, action: `OWNER_${newStatus.toUpperCase()}`, entity_type: 'booking', entity_id: bookingId, details: { note: `Owner marked as ${newStatus}` } })
 
-    // EMAIL: Notify Teacher of manual Approval/Rejection
     await sendEmail({
-      to: req.profiles?.email,
-      subject: `Booking ${newStatus.toUpperCase()}: ${req.resources?.name}`,
-      title: `Booking ${newStatus === 'approved' ? 'Approved' : 'Rejected'}`,
-      message: newStatus === 'approved' 
-        ? 'The provider has reviewed and approved your booking request.' 
-        : 'Unfortunately, the provider has rejected your booking request.',
-      details: [
-        { label: 'Resource', value: req.resources?.name },
-        { label: 'Date', value: req.booking_date }
-      ]
+      to: req.profiles?.email, subject: `Booking ${newStatus.toUpperCase()}: ${req.resources?.name}`, title: `Booking Update`,
+      message: newStatus === 'approved' ? 'The provider approved your request.' : newStatus === 'waitlisted' ? 'You have been placed on the waitlist.' : 'The provider rejected your request.',
+      details: [{ label: 'Resource', value: req.resources?.name }, { label: 'Date', value: req.booking_date }]
     })
-
-    loadData()
-    setIsProcessing(false)
+    loadData(); setIsProcessing(false)
   }
 
   const isBookingLate = (booking: any) => {
     if (booking.status !== 'checked_out') return false;
-    const endDateTime = new Date(`${booking.booking_date}T${booking.end_time}`);
-    return endDateTime < new Date();
+    return new Date(`${booking.booking_date}T${booking.end_time}`) < new Date();
   }
 
   const getBookedCount = (resId: string) => pastTransactions.filter(t => t.resource_id === resId).length;
 
-  if (loading) return <div style={{ padding: '100px', textAlign: 'center' }}><span className="spinner spinner-dark" style={{ width: '40px', height: '40px', borderWidth: '4px' }}></span></div>
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col justify-center items-center gap-3">
+        <div className="w-8 h-8 border-3 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+        <p className="text-slate-500 text-sm font-medium">Loading provider dashboard...</p>
+      </div>
+    )
+  }
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', minHeight: '100vh', backgroundColor: '#f8fafc' }}>
+    <div className="font-sans min-h-screen bg-slate-50/70 text-slate-900">
       
-      <nav style={{ backgroundColor: '#0f172a', color: '#fff', padding: '15px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h1 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold' }}>🏢 Provider Dashboard</h1>
-        <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-          <span style={{ fontSize: '14px', color: '#cbd5e1' }}>👤 {userProfile?.full_name || user?.email}</span>
-          <button onClick={() => setShowForm(!showForm)} style={{ backgroundColor: '#38bdf8', color: '#0f172a', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '14px' }}>{showForm ? 'Cancel' : '+ List New Resource'}</button>
-          <button onClick={async () => { await supabase.auth.signOut(); router.push('/login') }} style={{ background: '#334155', color: '#fff', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '14px' }}>Logout</button>
+      {/* NAVBAR */}
+      <nav className="bg-white/80 backdrop-blur-md border-b border-slate-200/80 px-6 py-3.5 sticky top-0 z-40">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-md shadow-indigo-600/20">
+              🏢
+            </div>
+            <div>
+              <h1 className="font-bold text-slate-900 tracking-tight">Provider Dashboard</h1>
+              <p className="text-xs text-slate-500">Resource Ownership Portal</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-3 items-center">
+            <span className="text-xs font-medium text-slate-600 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200/60 hidden sm:inline">
+              👤 {userProfile?.full_name || user?.email}
+            </span>
+            <button 
+              onClick={() => setShowForm(!showForm)} 
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-semibold transition shadow-sm"
+            >
+              {showForm ? 'Cancel Form' : '+ New Resource'}
+            </button>
+            <button 
+              onClick={async () => { await supabase.auth.signOut(); router.push('/login') }} 
+              className="bg-slate-100 hover:bg-slate-200/80 text-slate-700 px-3.5 py-2 rounded-xl text-xs font-semibold transition border border-slate-200"
+            >
+              Logout
+            </button>
+          </div>
         </div>
       </nav>
 
-      <div style={{ padding: '40px', maxWidth: '1100px', margin: '0 auto' }}>
-        {message && <div style={{ padding: '15px', backgroundColor: '#dcfce7', color: '#166534', borderRadius: '8px', marginBottom: '20px', fontWeight: 'bold' }}>{message}</div>}
+      <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-8">
+        
+        {/* MESSAGE ALERT */}
+        {message && (
+          <div className="p-4 rounded-xl font-medium text-sm border shadow-xs bg-emerald-50 text-emerald-800 border-emerald-200 flex items-center gap-2.5">
+            <span>✨</span>
+            <span>{message}</span>
+          </div>
+        )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', marginBottom: '40px' }}>
-          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-            <p style={{ margin: '0 0 5px 0', color: '#64748b', fontSize: '14px' }}>Total Resources Listed</p>
-            <h2 style={{ margin: 0, fontSize: '28px', color: '#0f172a' }}>{myResources.length}</h2>
+        {/* STATS */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
+            <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Total Resources Listed</p>
+            <div className="flex items-baseline justify-between mt-3">
+              <h2 className="text-2xl font-bold text-slate-900">{myResources.length}</h2>
+              <span className="text-xs text-indigo-600 font-semibold bg-indigo-50 px-2 py-0.5 rounded-md">Assets</span>
+            </div>
           </div>
-          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-            <p style={{ margin: '0 0 5px 0', color: '#64748b', fontSize: '14px' }}>Pending Requests</p>
-            <h2 style={{ margin: 0, fontSize: '28px', color: '#d97706' }}>{pendingRequests.length}</h2>
+
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
+            <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Pending Requests</p>
+            <div className="flex items-baseline justify-between mt-3">
+              <h2 className="text-2xl font-bold text-amber-600">{pendingRequests.length}</h2>
+              <span className="text-xs text-amber-600 font-semibold bg-amber-50 px-2 py-0.5 rounded-md">Action Required</span>
+            </div>
           </div>
-          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-            <p style={{ margin: '0 0 5px 0', color: '#64748b', fontSize: '14px' }}>Total Transactions</p>
-            <h2 style={{ margin: 0, fontSize: '28px', color: '#16a34a' }}>{pastTransactions.length}</h2>
+
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col justify-between">
+            <p className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Total Transactions</p>
+            <div className="flex items-baseline justify-between mt-3">
+              <h2 className="text-2xl font-bold text-emerald-600">{pastTransactions.length}</h2>
+              <span className="text-xs text-emerald-600 font-semibold bg-emerald-50 px-2 py-0.5 rounded-md">Fulfilled</span>
+            </div>
           </div>
         </div>
 
+        {/* CREATE FORM */}
         {showForm && (
-          <div style={{ backgroundColor: 'white', padding: '30px', borderRadius: '12px', marginBottom: '40px', boxShadow: '0 4px 6px rgba(0,0,0,0.05)' }}>
-            <h2 style={{ marginTop: 0 }}>List a New Resource</h2>
-            <form onSubmit={handleCreateResource} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-              <input type="text" placeholder="Resource Name" value={name} onChange={e => setName(e.target.value)} required style={{ padding: '12px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
-              <select value={category} onChange={e => setCategory(e.target.value)} style={{ padding: '12px', border: '1px solid #cbd5e1', borderRadius: '8px' }}>
-                <option value="lab">Laboratory</option>
-                <option value="smart_classroom">Smart Classroom</option>
-                <option value="science_park">Science Park</option>
-                <option value="sports_ground">Sports Ground</option>
-                <option value="transportation">Transportation</option>
-              </select>
-              <input type="text" placeholder="Location" value={location} onChange={e => setLocation(e.target.value)} required style={{ padding: '12px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
-              <input type="number" placeholder="Max Capacity" value={capacity} onChange={e => setCapacity(e.target.value)} required style={{ padding: '12px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
-              <input type="text" placeholder="Resource Person Name" value={resPerson} onChange={e => setResPerson(e.target.value)} required style={{ padding: '12px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
-              <input type="tel" placeholder="Resource Person Phone" value={resPhone} onChange={e => setResPhone(e.target.value)} required style={{ padding: '12px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
-              <div style={{ gridColumn: 'span 2' }}><textarea placeholder="Description..." value={description} onChange={e => setDescription(e.target.value)} required style={{ width: '100%', padding: '12px', border: '1px solid #cbd5e1', borderRadius: '8px', minHeight: '80px', fontFamily: 'inherit' }} /></div>
-              <div style={{ gridColumn: 'span 2', display: 'flex', flexDirection: 'column', gap: '5px' }}>
-                <label style={{ fontSize: '13px', fontWeight: 'bold' }}>Upload Image</label>
-                <input type="file" accept="image/*" onChange={e => setImageFile(e.target.files?.[0] || null)} required style={{ padding: '10px', border: '1px dashed #cbd5e1', borderRadius: '8px' }} />
+          <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200/80 space-y-6">
+            <div className="border-b border-slate-100 pb-3">
+              <h2 className="font-bold text-base text-slate-900">List a New Resource</h2>
+              <p className="text-xs text-slate-500 mt-0.5">Provide detailed specifications for accurate booking allocations.</p>
+            </div>
+            
+            <form onSubmit={handleCreateResource} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Resource Name</label>
+                <input type="text" placeholder="e.g. Advanced Physics Lab" value={name} onChange={e => setName(e.target.value)} required className="w-full p-2.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
               </div>
-              <button type="submit" disabled={isProcessing} style={{ gridColumn: 'span 2', padding: '12px', backgroundColor: '#0f172a', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>{isProcessing ? <span className="spinner"></span> : 'Publish Resource'}</button>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Category Type</label>
+                <select value={category} onChange={e => setCategory(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-xl text-xs bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500">
+                  <option value="lab">Laboratory</option>
+                  <option value="smart_classroom">Smart Classroom</option>
+                  <option value="science_park">Science Park</option>
+                  <option value="sports_ground">Sports Ground</option>
+                  <option value="transportation">Transportation</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Location Venue</label>
+                <input type="text" placeholder="e.g. Science Block, Floor 2" value={location} onChange={e => setLocation(e.target.value)} required className="w-full p-2.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Max Capacity Limit</label>
+                <input type="number" placeholder="30" value={capacity} onChange={e => setCapacity(e.target.value)} required className="w-full p-2.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Contact Person Name</label>
+                <input type="text" placeholder="e.g. Prof. John Doe" value={resPerson} onChange={e => setResPerson(e.target.value)} required className="w-full p-2.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Contact Phone Number</label>
+                <input type="tel" placeholder="+1 (555) 000-0000" value={resPhone} onChange={e => setResPhone(e.target.value)} required className="w-full p-2.5 border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Detailed Description</label>
+                <textarea placeholder="Describe features, equipment included..." value={description} onChange={e => setDescription(e.target.value)} required className="w-full p-2.5 border border-slate-200 rounded-xl min-h-[80px] text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" />
+              </div>
+
+              <div className="md:col-span-2 flex flex-col gap-1">
+                <label className="text-xs font-semibold text-slate-600">Resource Photo</label>
+                <input type="file" accept="image/*" onChange={e => setImageFile(e.target.files?.[0] || null)} required className="w-full p-2 border border-dashed border-slate-300 rounded-xl text-xs bg-slate-50 text-slate-500 cursor-pointer" />
+              </div>
+
+              <button 
+                type="submit" 
+                disabled={isProcessing} 
+                className="md:col-span-2 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition shadow-sm"
+              >
+                {isProcessing ? 'Publishing...' : 'Publish Resource'}
+              </button>
             </form>
           </div>
         )}
 
-        <div style={{ marginBottom: '40px' }}>
-          <h2 style={{ fontSize: '20px' }}>Pending Requests</h2>
-          {pendingRequests.length === 0 ? <p style={{ color: '#64748b' }}>No pending requests.</p> : (
-            <div style={{ display: 'grid', gap: '15px' }}>
+        {/* PENDING REQUESTS (HYBRID AI + MANUAL APPROVAL) */}
+        <div className="space-y-3">
+          <h2 className="text-base font-bold text-slate-900">Pending Requests (Review)</h2>
+          {pendingRequests.length === 0 ? (
+            <div className="bg-white p-6 rounded-2xl border border-slate-200/80 text-center text-slate-400 text-xs">
+              No pending booking requests awaiting review.
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
               {pendingRequests.map(req => (
-                <div key={req.id} style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-                  <div>
-                    <h3 style={{ margin: '0 0 5px 0' }}>{req.resources?.name}</h3>
-                    <p style={{ margin: '0 0 5px 0', fontSize: '14px', color: '#475569' }}><strong>Teacher:</strong> {req.profiles?.full_name} ({req.profiles?.phone})</p>
-                    <p style={{ margin: '0 0 5px 0', fontSize: '14px', color: '#475569' }}><strong>Date:</strong> {req.booking_date} | <strong>Students:</strong> {req.num_students}</p>
+                <div key={req.id} className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex flex-col gap-4">
+                  <div className="flex flex-col md:flex-row justify-between md:items-start gap-4">
+                    <div className="space-y-1">
+                      <h3 className="font-bold text-slate-900 text-base">{req.resources?.name}</h3>
+                      <p className="text-xs text-slate-600"><strong>Teacher:</strong> {req.profiles?.full_name} ({req.profiles?.phone || 'No phone'})</p>
+                      <p className="text-xs text-slate-500">📅 Date: {req.booking_date} • 👥 Students: {req.num_students}</p>
+                      <p className="text-xs text-slate-600 italic mt-1 bg-slate-50 p-2.5 rounded-xl border border-slate-100">"{req.purpose}"</p>
+                    </div>
+                    
+                    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 min-w-[160px] text-center">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Auto-Priority Score</p>
+                      <p className="text-xl font-black text-indigo-600">{req.priority_score} pts</p>
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', gap: '10px' }}>
-                    <button onClick={() => handleRequestAction(req.id, 'approved', req)} disabled={isProcessing} style={{ padding: '8px 16px', backgroundColor: '#16a34a', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Approve</button>
-                    <button onClick={() => handleRequestAction(req.id, 'rejected', req)} disabled={isProcessing} style={{ padding: '8px 16px', backgroundColor: '#ef4444', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Reject</button>
+
+                  {/* System Note */}
+                  <div className="bg-indigo-50/70 text-indigo-900 p-3 rounded-xl text-xs border border-indigo-100">
+                    <strong>System Analysis:</strong> {req.system_decision_note}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2.5 w-full pt-1">
+                    <button 
+                      onClick={() => handleRequestAction(req.id, 'approved', req)} 
+                      disabled={isProcessing} 
+                      className="flex-1 min-w-[100px] py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition shadow-xs"
+                    >
+                      Approve
+                    </button>
+                    <button 
+                      onClick={() => handleRequestAction(req.id, 'waitlisted', req)} 
+                      disabled={isProcessing} 
+                      className="flex-1 min-w-[100px] py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-semibold transition shadow-xs"
+                    >
+                      Waitlist
+                    </button>
+                    <button 
+                      onClick={() => handleRequestAction(req.id, 'rejected', req)} 
+                      disabled={isProcessing} 
+                      className="flex-1 min-w-[100px] py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-semibold transition shadow-xs"
+                    >
+                      Reject
+                    </button>
                   </div>
                 </div>
               ))}
@@ -200,57 +308,78 @@ export default function OwnerPage() {
           )}
         </div>
 
-        <h2 style={{ fontSize: '20px' }}>My Resources</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px', marginBottom: '40px' }}>
-          {myResources.map(res => (
-            <div key={res.id} style={{ backgroundColor: 'white', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-              {res.image_url && <img src={res.image_url} alt={res.name} style={{ width: '100%', height: '120px', objectFit: 'cover' }} />}
-              <div style={{ padding: '15px' }}>
-                <h3 style={{ margin: '5px 0', fontSize: '16px' }}>{res.name}</h3>
-                <p style={{ margin: '0 0 10px 0', fontSize: '13px', color: '#64748b' }}>Capacity: {res.capacity}</p>
-                <div style={{ backgroundColor: '#f1f5f9', padding: '8px', borderRadius: '6px', fontSize: '13px', textAlign: 'center', color: '#334155', fontWeight: 'bold' }}>
-                  Booked {getBookedCount(res.id)} times
+        {/* MY RESOURCES */}
+        <div className="space-y-3">
+          <h2 className="text-base font-bold text-slate-900">My Resources</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {myResources.map(res => (
+              <div key={res.id} className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden flex flex-col group">
+                {res.image_url ? (
+                  <img src={res.image_url} alt={res.name} className="w-full h-36 object-cover" />
+                ) : (
+                  <div className="w-full h-36 bg-slate-100 flex items-center justify-center text-slate-400 text-xs">No Image</div>
+                )}
+                <div className="p-5 flex flex-col flex-grow justify-between gap-4">
+                  <div>
+                    <h3 className="font-bold text-slate-900 text-base">{res.name}</h3>
+                    <p className="text-xs text-slate-500 mt-1">Capacity Limit: {res.capacity}</p>
+                  </div>
+                  <div className="bg-slate-50 p-2 rounded-xl text-center text-xs font-semibold text-slate-700 border border-slate-100">
+                    Booked {getBookedCount(res.id)} times
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
-        <h2 style={{ fontSize: '20px' }}>Past Transactions Ledger</h2>
-        <div style={{ backgroundColor: 'white', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '14px' }}>
-            <thead style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-              <tr>
-                <th style={{ padding: '15px', color: '#64748b' }}>Resource</th>
-                <th style={{ padding: '15px', color: '#64748b' }}>Teacher</th>
-                <th style={{ padding: '15px', color: '#64748b' }}>Date</th>
-                <th style={{ padding: '15px', color: '#64748b' }}>Students</th>
-                <th style={{ padding: '15px', color: '#64748b' }}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pastTransactions.map(tx => (
-                <tr key={tx.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '15px', fontWeight: '500' }}>{tx.resources?.name}</td>
-                  <td style={{ padding: '15px', color: '#64748b' }}>{tx.profiles?.full_name}</td>
-                  <td style={{ padding: '15px', color: '#64748b' }}>{tx.booking_date}</td>
-                  <td style={{ padding: '15px', color: '#64748b' }}>{tx.num_students}</td>
-                  <td style={{ padding: '15px' }}>
-                    {isBookingLate(tx) ? (
-                      <span style={{ padding: '4px 8px', borderRadius: '4px', backgroundColor: '#fee2e2', color: '#991b1b', fontSize: '12px', fontWeight: 'bold', border: '1px solid #f87171' }}>
-                        ⚠️ OVERDUE RETURN
-                      </span>
-                    ) : (
-                      <span style={{ padding: '4px 8px', borderRadius: '4px', backgroundColor: tx.status === 'returned' ? '#dcfce7' : tx.status === 'rejected' ? '#fee2e2' : '#e0f2fe', color: tx.status === 'returned' ? '#166534' : tx.status === 'rejected' ? '#991b1b' : '#0369a1', fontSize: '12px', fontWeight: 'bold' }}>
-                        {tx.status.toUpperCase().replace('_', ' ')}
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {/* PAST TRANSACTIONS */}
+        <div className="space-y-3">
+          <h2 className="text-base font-bold text-slate-900">Past Transactions Ledger</h2>
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs whitespace-nowrap">
+                <thead className="bg-slate-50/80 border-b border-slate-200 text-slate-500">
+                  <tr>
+                    <th className="p-4 font-semibold">Resource</th>
+                    <th className="p-4 font-semibold">Teacher</th>
+                    <th className="p-4 font-semibold">Date</th>
+                    <th className="p-4 font-semibold">Students</th>
+                    <th className="p-4 font-semibold">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 text-slate-700">
+                  {pastTransactions.map(tx => (
+                    <tr key={tx.id} className="hover:bg-slate-50/50 transition">
+                      <td className="p-4 font-semibold text-slate-900">{tx.resources?.name}</td>
+                      <td className="p-4 text-slate-600">{tx.profiles?.full_name}</td>
+                      <td className="p-4 text-slate-500">{tx.booking_date}</td>
+                      <td className="p-4 text-slate-500">{tx.num_students}</td>
+                      <td className="p-4">
+                        {isBookingLate(tx) ? (
+                          <span className="px-2 py-0.5 rounded font-bold text-[10px] bg-red-50 text-red-700 border border-red-200">⚠️ OVERDUE</span>
+                        ) : (
+                          <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${
+                            tx.status === 'returned' 
+                              ? 'bg-emerald-50 text-emerald-700' 
+                              : tx.status === 'rejected' 
+                              ? 'bg-red-50 text-red-700' 
+                              : tx.status === 'waitlisted'
+                              ? 'bg-amber-50 text-amber-700'
+                              : 'bg-blue-50 text-blue-700'
+                          }`}>
+                            {tx.status.toUpperCase().replace('_', ' ')}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
+
       </div>
     </div>
   )
